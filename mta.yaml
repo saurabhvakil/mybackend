@@ -1,0 +1,110 @@
+_schema-version: "3.1"
+ID: mybackend
+description: A simple CAP project.
+version: 1.0.0
+modules:
+- name: mybackend-srv
+  type: nodejs
+  path: gen/srv
+  requires:
+  - name: uaa_mybackend
+  provides:
+  - name: srv-api
+    properties:
+      srv-url: ${default-url}
+  parameters:
+    buildpack: nodejs_buildpack
+  build-parameters:
+    builder: npm-ci
+- name: mybackend-approuter
+  type: approuter.nodejs
+  path: mybackend-approuter
+  requires:
+  - name: mybackend_html_repo_runtime
+  - name: uaa_mybackend
+  - name: srv-api
+    group: destinations
+    properties:
+      forwardAuthToken: true
+      name: srv-api
+      url: ~{srv-url}
+  - name: mybackend-destination-service
+    group: destinations
+    properties:
+      forwardAuthToken: false
+      name: ui5
+      url: https://ui5.sap.com
+  parameters:
+    disk-quota: 256M
+    memory: 256M
+- name: mybackend_ui_deployer
+  type: com.sap.application.content
+  path: .
+  requires:
+  - name: mybackend_html_repo_host
+    parameters:
+      content-target: true
+  build-parameters:
+    build-result: resources
+    requires:
+    - artifacts:
+      - mylistreport.zip
+      name: mylistreport
+      target-path: resources/
+- name: mylistreport
+  type: html5
+  path: app/mylistreport
+  build-parameters:
+    build-result: dist
+    builder: custom
+    commands:
+    - npm install
+    - npm run build:cf
+    supported-platforms: []
+resources:
+- name: mybackend_html_repo_runtime
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: html5-apps-repo
+    service-plan: app-runtime
+- name: uaa_mybackend
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      tenant-mode: dedicated
+      xsappname: mybackend
+    path: ./xs-security.json
+    service: xsuaa
+    service-name: mybackend-xsuaa-service
+    service-plan: application
+- name: mybackend_html_repo_host
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: html5-apps-repo
+    service-plan: app-host
+- name: mybackend-destination-service
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      HTML5Runtime_enabled: false
+      init_data:
+        instance:
+          destinations:
+          - Authentication: NoAuthentication
+            Name: ui5
+            ProxyType: Internet
+            Type: HTTP
+            URL: https://ui5.sap.com
+          existing_destinations_policy: update
+      version: 1.0.0
+    service: destination
+    service-name: mybackend-destination-service
+    service-plan: lite
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+  - builder: custom
+    commands:
+    - npx -p @sap/cds-dk cds build --production
